@@ -1,0 +1,172 @@
+它的结构元素除了key、value、hash外，还有next，next指向下一个节点。另外，这里覆写了equals和hashCode方法来保证键值对的独一无二。
+    3、HashMap共有四个构造方法。构造方法中提到了两个很重要的参数：初始容量和加载因子。这两个参数是影响HashMap性能的重要参数，其中容量表示哈希表中槽的数量（即哈希数组的长度），初始容量是创建哈希表时的容量（从构造函数中可以看出，如果不指明，则默认为16），加载因子是哈希表在其容量自动增加之前可以达到多满的一种尺度，当哈希表中的条目数超出了加载因子与当前容量的乘积时，则要对该哈希表进行 resize 操作（即扩容）。
+
+    下面说下加载因子，如果加载因子越大，对空间的利用更充分，但是查找效率会降低（链表长度会越来越长）；如果加载因子太小，那么表中的数据将过于稀疏（很多空间还没用，就开始扩容了），对空间造成严重浪费。如果我们在构造方法中不指定，则系统默认加载因子为0.75，这是一个比较理想的值，一般情况下我们是无需修改的。
+
+    另外，无论我们指定的容量为多少，构造方法都会将实际容量设为不小于指定容量的2的次方的一个数，且最大值不能超过2的30次方
+
+    4、HashMap中key和value都允许为null。
+
+    5、要重点分析下HashMap中用的最多的两个方法put和get。先从比较简单的get方法着手，源码如下：
+
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+// 获取key对应的value    
+public V get(Object key) {    
+    if (key == null)    
+        return getForNullKey();    
+    // 获取key的hash值    
+    int hash = hash(key.hashCode());    
+    // 在“该hash值对应的链表”上查找“键值等于key”的元素    
+    for (Entry<K,V> e = table[indexFor(hash, table.length)];    
+         e != null;    
+         e = e.next) {    
+        Object k;    
+/判断key是否相同  
+        if (e.hash == hash && ((k = e.key) == key || key.equals(k)))    
+            return e.value;    
+    }  
+没找到则返回null  
+    return null;    
+}    
+  
+// 获取“key为null”的元素的值    
+// HashMap将“key为null”的元素存储在table[0]位置，但不一定是该链表的第一个位置！    
+private V getForNullKey() {    
+    for (Entry<K,V> e = table[0]; e != null; e = e.next) {    
+        if (e.key == null)    
+            return e.value;    
+    }    
+    return null;    
+}    
+    首先，如果key为null，则直接从哈希表的第一个位置table[0]对应的链表上查找。记住，key为null的键值对永远都放在以table[0]为头结点的链表中，当然不一定是存放在头结点table[0]中。
+    如果key不为null，则先求的key的hash值，根据hash值找到在table中的索引，在该索引对应的单链表中查找是否有键值对的key与目标key相等，有就返回对应的value，没有则返回null。
+
+    put方法稍微复杂些，代码如下：
+
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+  // 将“key-value”添加到HashMap中    
+  public V put(K key, V value) {    
+      // 若“key为null”，则将该键值对添加到table[0]中。    
+      if (key == null)    
+          return putForNullKey(value);    
+      // 若“key不为null”，则计算该key的哈希值，然后将其添加到该哈希值对应的链表中。    
+      int hash = hash(key.hashCode());    
+      int i = indexFor(hash, table.length);    
+      for (Entry<K,V> e = table[i]; e != null; e = e.next) {    
+          Object k;    
+          // 若“该key”对应的键值对已经存在，则用新的value取代旧的value。然后退出！    
+          if (e.hash == hash && ((k = e.key) == key || key.equals(k))) {    
+              V oldValue = e.value;    
+              e.value = value;    
+              e.recordAccess(this);    
+              return oldValue;    
+          }    
+      }    
+  
+      // 若“该key”对应的键值对不存在，则将“key-value”添加到table中    
+      modCount++;  
+//将key-value添加到table[i]处  
+      addEntry(hash, key, value, i);    
+      return null;    
+  }   
+    如果key为null，则将其添加到table[0]对应的链表中，putForNullKey的源码如下：
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+// putForNullKey()的作用是将“key为null”键值对添加到table[0]位置    
+private V putForNullKey(V value) {    
+    for (Entry<K,V> e = table[0]; e != null; e = e.next) {    
+        if (e.key == null) {    
+            V oldValue = e.value;    
+            e.value = value;    
+            e.recordAccess(this);    
+            return oldValue;    
+        }    
+    }    
+    // 如果没有存在key为null的键值对，则直接题阿见到table[0]处!    
+    modCount++;    
+    addEntry(0, null, value, 0);    
+    return null;    
+}   
+    如果key不为null，则同样先求出key的hash值，根据hash值得出在table中的索引，而后遍历对应的单链表，如果单链表中存在与目标key相等的键值对，则将新的value覆盖旧的value，比将旧的value返回，如果找不到与目标key相等的键值对，或者该单链表为空，则将该键值对插入到改单链表的头结点位置（每次新插入的节点都是放在头结点的位置），该操作是有addEntry方法实现的，它的源码如下：
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+// 新增Entry。将“key-value”插入指定位置，bucketIndex是位置索引。    
+void addEntry(int hash, K key, V value, int bucketIndex) {    
+    // 保存“bucketIndex”位置的值到“e”中    
+    Entry<K,V> e = table[bucketIndex];    
+    // 设置“bucketIndex”位置的元素为“新Entry”，    
+    // 设置“e”为“新Entry的下一个节点”    
+    table[bucketIndex] = new Entry<K,V>(hash, key, value, e);    
+    // 若HashMap的实际大小 不小于 “阈值”，则调整HashMap的大小    
+    if (size++ >= threshold)    
+        resize(2 * table.length);    
+}    
+    注意这里倒数第三行的构造方法，将key-value键值对赋给table[bucketIndex]，并将其next指向元素e，这便将key-value放到了头结点中，并将之前的头结点接在了它的后面。该方法也说明，每次put键值对的时候，总是将新的该键值对放在table[bucketIndex]处（即头结点处）。
+    两外注意最后两行代码，每次加入键值对时，都要判断当前已用的槽的数目是否大于等于阀值（容量*加载因子），如果大于等于，则进行扩容，将容量扩为原来容量的2倍。
+
+    6、关于扩容。上面我们看到了扩容的方法，resize方法，它的源码如下：
+
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+// 重新调整HashMap的大小，newCapacity是调整后的单位    
+void resize(int newCapacity) {    
+    Entry[] oldTable = table;    
+    int oldCapacity = oldTable.length;    
+    if (oldCapacity == MAXIMUM_CAPACITY) {    
+        threshold = Integer.MAX_VALUE;    
+        return;    
+    }    
+  
+    // 新建一个HashMap，将“旧HashMap”的全部元素添加到“新HashMap”中，    
+    // 然后，将“新HashMap”赋值给“旧HashMap”。    
+    Entry[] newTable = new Entry[newCapacity];    
+    transfer(newTable);    
+    table = newTable;    
+    threshold = (int)(newCapacity * loadFactor);    
+}    
+    很明显，是新建了一个HashMap的底层数组，而后调用transfer方法，将就HashMap的全部元素添加到新的HashMap中（要重新计算元素在新的数组中的索引位置）。transfer方法的源码如下：
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+// 将HashMap中的全部元素都添加到newTable中    
+void transfer(Entry[] newTable) {    
+    Entry[] src = table;    
+    int newCapacity = newTable.length;    
+    for (int j = 0; j < src.length; j++) {    
+        Entry<K,V> e = src[j];    
+        if (e != null) {    
+            src[j] = null;    
+            do {    
+                Entry<K,V> next = e.next;    
+                int i = indexFor(e.hash, newCapacity);    
+                e.next = newTable[i];    
+                newTable[i] = e;    
+                e = next;    
+            } while (e != null);    
+        }    
+    }    
+}    
+    很明显，扩容是一个相当耗时的操作，因为它需要重新计算这些元素在新的数组中的位置并进行复制处理。因此，我们在用HashMap的时，最好能提前预估下HashMap中元素的个数，这样有助于提高HashMap的性能。
+    7、注意containsKey方法和containsValue方法。前者直接可以通过key的哈希值将搜索范围定位到指定索引对应的链表，而后者要对哈希数组的每个链表进行搜索。
+
+    8、我们重点来分析下求hash值和索引值的方法，这两个方法便是HashMap设计的最为核心的部分，二者结合能保证哈希表中的元素尽可能均匀地散列。
+
+    计算哈希值的方法如下：
+
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+static int hash(int h) {  
+        h ^= (h >>> 20) ^ (h >>> 12);  
+        return h ^ (h >>> 7) ^ (h >>> 4);  
+    }  
+    它只是一个数学公式，IDK这样设计对hash值的计算，自然有它的好处，至于为什么这样设计，我们这里不去追究，只要明白一点，用的位的操作使hash值的计算效率很高。
+    由hash值找到对应索引的方法如下：
+
+
+[java] view plain copy 在CODE上查看代码片派生到我的代码片
+static int indexFor(int h, int length) {  
+        return h & (length-1);  
+    }  
+    这个我们要重点说下，我们一般对哈希表的散列很自然地会想到用hash值对length取模（即除法散列法），Hashtable中也是这样实现的，这种方法基本能保证元素在哈希表中散列的比较均匀，但取模会用到除法运算，效率很低，HashMap中则通过h&(length-1)的方法来代替取模，同样实现了均匀的散列，但效率要高很多，这也是HashMap对Hashtable的一个改进。
+    接下来，我们分析下为什么哈希表的容量一定要是2的整数次幂。首先，length为2的整数次幂的话，h&(length-1)就相当于对length取模，这样便保证了散列的均匀，同时也提升了效率；其次，length为2的整数次幂的话，为偶数，这样length-1为奇数，奇数的最后一位是1，这样便保证了h&(length-1)的最后一位可能为0，也可能为1（这取决于h的值），即与后的结果可能为偶数，也可能为奇数，这样便可以保证散列的均匀性，而如果length为奇数的话，很明显length-1为偶数，它的最后一位是0，这样h&(length-1)的最后一位肯定为0，即只能为偶数，这样任何hash值都只会被散列到数组的偶数下标位置上，这便浪费了近一半的空间，因此，length取2的整数次幂，是为了使不同hash值发生碰撞的概率较小，这样就能使元素在哈希表中均匀地散列。
